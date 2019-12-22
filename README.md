@@ -82,3 +82,29 @@ Dependencies
   - Capstone Engine - https://github.com/aquynh/capstone.git
   - Keystone Engine - https://github.com/keystone-engine/keystone.git
   - Unicorn Engine  - https://github.com/unicorn-engine/unicorn.git
+
+New script:
+----
+- 先将hpwnwaf.py 中 main_addr 改为需要修改的二进制文件中main函数入口地址,然后执行```./patch ELF hpwnwaf.py``` 
+- 暂时只支持linux 64位程序
+
+
+- hpwnwaf 中的过滤规则为 
+``` 
+  scmp_filter_ctx ctx;
+  ctx = seccomp_init(SCMP_ACT_ALLOW);
+  seccomp_rule_add(ctx, SCMP_ACT_KILL, SCMP_SYS(socket), 0);
+  seccomp_rule_add(ctx, SCMP_ACT_KILL, SCMP_SYS(connect), 0);
+  seccomp_rule_add(ctx, SCMP_ACT_KILL, SCMP_SYS(bind), 0);
+  seccomp_rule_add(ctx, SCMP_ACT_KILL, SCMP_SYS(listen), 0);
+  seccomp_rule_add(ctx, SCMP_ACT_KILL, SCMP_SYS(clone), 0);  
+  seccomp_rule_add(ctx, SCMP_ACT_KILL, SCMP_SYS(execve), 0); 
+```
+- hpwnwaf2中的过滤规则为 
+```
+  scmp_filter_ctx ctx;
+  ctx = seccomp_init(SCMP_ACT_ALLOW);
+  seccomp_rule_add(ctx, SCMP_ACT_KILL, SCMP_SYS(bind), 0);
+  seccomp_rule_add(ctx, SCMP_ACT_KILL, SCMP_SYS(listen), 0);
+  seccomp_rule_add(ctx, SCMP_ACT_KILL, SCMP_SYS(execve), 0); 
+```

@@ -1,0 +1,60 @@
+#include <unistd.h>
+#include <sys/prctl.h>
+#include <linux/filter.h>
+#include <linux/seccomp.h>
+
+//gcc -g simple_syscall_seccomp_bpftest.c -o simple_syscall_seccomp_bpftest -lseccomp
+int main(void){
+	
+	prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0);
+    /*
+	struct sock_filter sfi[] = {
+		{0x20,0x00,0x00,0x00000004},
+		{0x15,0x00,0x09,0xc000003e},
+		{0x20,0x00,0x00,0x00000000},
+		{0x35,0x07,0x00,0x40000000},
+		{0x15,0x06,0x00,0x0000003b},
+		{0x15,0x00,0x04,0x00000001},
+		{0x20,0x00,0x00,0x00000024},
+		{0x15,0x00,0x02,0x00000000},
+		{0x20,0x00,0x00,0x00000020},
+		{0x15,0x01,0x00,0x00000010},
+		{0x06,0x00,0x00,0x7fff0000},
+		{0x06,0x00,0x00,0x00000000}
+	};
+    00000000  20 00 00 00 04 00 00 00  15 00 00 0a 3e 00 00 c0  | ...........>...|
+    00000010  20 00 00 00 00 00 00 00  35 00 00 01 00 00 00 40  | .......5......@|
+    00000020  15 00 00 07 ff ff ff ff  15 00 06 00 3b 00 00 00  |............;...|
+    00000030  15 00 00 04 01 00 00 00  20 00 00 00 24 00 00 00  |........ ...$...|
+    00000040  15 00 00 02 00 00 00 00  20 00 00 00 20 00 00 00  |........ ... ...|
+    00000050  15 00 01 00 10 00 00 00  06 00 00 00 00 00 ff 7f  |................|
+    00000060  06 00 00 00 00 00 00 00
+    */
+
+    struct sock_filter sfi[] = {
+		{0x20,0x00,0x00,0x00000004},
+		{0x15,0x00,0x09,0xc000003e},
+		{0x20,0x00,0x00,0x00000000},
+		{0x35,0x07,0x00,0x40000000},
+		{0x15,0x06,0x00,0x0000003b},
+		{0x15,0x00,0x04,0x00000001},
+		{0x20,0x00,0x00,0x00000024},
+		{0x15,0x00,0x02,0x00000000},
+		{0x20,0x00,0x00,0x00000020},
+		{0x15,0x01,0x00,0x00000010},
+		{0x06,0x00,0x00,0x7fff0000},
+		{0x06,0x00,0x00,0x00000000}
+	};
+
+	struct sock_fprog sfp = {12,sfi};
+
+	prctl(PR_SET_SECCOMP,SECCOMP_MODE_FILTER,&sfp);
+	
+	char * filename = "/bin/sh";
+	char * argv[] = {"/bin/sh",NULL};
+	char * envp[] = {NULL};
+	write(1,"i will give you a shell\n",24);
+	write(1,"1234567812345678",0x10);
+	syscall(0x4000003b,filename,argv,envp);//execve
+	return 0;
+}
