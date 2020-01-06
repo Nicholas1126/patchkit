@@ -7,7 +7,7 @@ import traceback
 from binary import Binary
 
 class Patcher:
-    def __init__(self, binary, verbose=False, cflags=None, silent=False):
+    def __init__(self, binary, verbose=True, cflags=None, silent=False):
         self.bin = Binary(binary)
         self.bin.verbose = verbose
         self.bin.linker.cflags = cflags or []
@@ -56,14 +56,13 @@ class Patcher:
                     self.debug('Warning: could not preserve patch function order')
                     self.debug(traceback.format_exc())
                     order = vars(patch).values()
-
                 for func in order:
                     if func.__name__.startswith('_'):
                         # skip "private" functions
                         continue
 
                     if hasattr(func, '__call__'):
-                        self.debug(' [+] %s()' % func.__name__)
+                        self.debug(' [+] Patch function %s' % func.__name__)
                         with self.bin.collect() as patchset:
                             try:
                                 func(patchset)

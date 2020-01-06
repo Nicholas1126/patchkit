@@ -10,6 +10,7 @@ if __name__ == '__main__':
     parser = OptionParser(usage='Usage: patcher [options] <binary> <patchdir> [patchdir...]')
     parser.add_option('-o', '--out', dest="out", help="output filename (default = <binary>.patched)")
     parser.add_option('-v', '--verbose', dest="verbose", action="store_true", help="verbose output")
+    parser.add_option('-s', '--silent', dest="silent", action="store_true", help="silent output")
     parser.add_option('-n', '--new', dest='new', help="create new binary from template/<new>")
     parser.add_option('--cflags', dest='cflags', help="add compiler flags to injected C")
 
@@ -31,7 +32,11 @@ if __name__ == '__main__':
 
     out = os.path.abspath(options.out or defout)
 
-    patch = Patcher(binary, verbose=options.verbose, cflags=options.cflags)
+    slt = False
+    if options.silent:
+        slt = options.silent
+
+    patch = Patcher(binary, verbose=options.verbose, cflags=options.cflags, silent=slt)
     for d in patchdirs:
         patch.add(d)
 

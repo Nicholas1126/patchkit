@@ -99,6 +99,7 @@ def compile(code, linker, syms=()):
     code = linker.pre(code, syms=syms)
     p = subprocess.Popen(['gcc', '-xc', '-S', '-o-', '-'] + cflags, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     asm, err = p.communicate(code)
+    
     if 'error:' in err.lower():
         raise BuildError(err)
     elif err:

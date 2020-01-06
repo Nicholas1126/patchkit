@@ -198,6 +198,8 @@ class Context(object):
 
         alloc = self.binary.next_alloc()
         # TODO: what if call(0) is smaller than the call to our hook?
+        self.debug(pfcol('HOOK') + '%s' % (self.arch.call(alloc)))
+
         call = self.asm(self.arch.call(alloc), addr=alloc)
 
         # our injected code is guaranteed to be sequential and unaligned
@@ -205,13 +207,16 @@ class Context(object):
         evicted = ''
         # eh we'll just trust that a call won't be anywhere near 64 bytes
         ins = self.dis(src)
+        
         for ins in ins:
             evicted += ins.bytes
             if len(evicted) >= len(call):
                 break
 
         evicted = evicted.strip(self.asm(self.arch.nop())) # your loss
+    
         if len(evicted) == 0 and False:
+            self.debug(pfcol('HOOK') + 'evicted %s' % (self.arch.call(dst)))
             self.patch(src, asm=self.arch.call(dst))
             return
 
@@ -233,7 +238,7 @@ class Context(object):
         # TODO: self.alloc()?
         stage1_addr = self.binary.alloc(len(stage0), target='patch')
         stage2_addr = self.binary.alloc(len(stage0), target='patch')
-
+        self.debug(pfcol('HOOK') + '@stage1:0x%x , stage2:0x%x' % (stage1_addr, stage2_addr))
         # memcpy needs to be pc-relative
         base = self.binary.next_alloc()
         hook1 = self.inject(asm=';'.join((
@@ -246,7 +251,7 @@ class Context(object):
             self.arch.memcpy(src - base, stage1_addr - base, len(stage0)),
             self.arch.jmp(jmpoff),
         )), internal=True)
-
+        self.debug(pfcol('HOOK') + '@hook1:0x%x , hook2:0x%x' % (hook1, hook2))
         # we need to overwrite both stages because we didn't know the hook addrs at the time
         stage1 = self.asm(';'.join(
             (self.arch.jmp(hook1),) + (self.arch.nop(),) * (len(evicted) - len(emptyjmp)),
@@ -258,6 +263,70 @@ class Context(object):
         # TODO: act more like mobile substrate wrt orig calling?
         # that is, make calling orig optional
         self.patch(src, raw=stage1, is_asm=True, internal=True, desc='hook entry point')
+
+    def hook_inline(self, src, dst, first=False, noentry=False):
+        # hooking the entry point is a special, more efficient case
+        # hooking the entry point is a special, more efficient case
+        if src == self.entry and not noentry:
+            if first:
+                self.binary.entry_hooks.insert(0, dst)
+            else:
+                self.binary.entry_hooks.append(dst)
+            self.debug(pfcol('HOOK_INLINE') + 'ENTRY -> 0x%x' % dst)
+            return
+        self.debug(pfcol('HOOK_INLINE') + '@0x%x -> 0x%x' % (src, dst))
+        self.make_writable(src)
+
+        # get address len
+        alloc = self.binary.next_alloc()
+        # TODO: what if call(0) is smaller than the call to our hook?
+        self.debug(pfcol('HOOK_INLINE') + '%s' % (self.arch.call(alloc)))
+        self.debug(pfcol('HOOK_INLINE') + '%s' % (self.arch.jmp(alloc)))
+
+        call = self.asm(self.arch.call(alloc), addr=alloc)
+
+        # our injected code is guaranteed to be sequential and unaligned
+        # so we can inject twice and call the first one
+        replaced = ''
+        # eh we'll just trust that a call won't be anywhere near 64 bytes
+        ins = self.dis(src)
+
+        for ins in ins:
+            replaced += ins.bytes
+            self.debug(pfcol('HOOK_INLINE') + '* search header -> %s' % binascii.hexlify(ins.bytes))
+            if len(replaced) >= len(call):
+                break
+
+        replaced = replaced.strip(self.asm(self.arch.nop())) # your loss
+
+        if len(replaced) == 0 and False:
+            self.debug(pfcol('HOOK_INLINE') + 'replaced %s' % (self.arch.call(dst)))
+            self.patch(src, asm=self.arch.call(dst))
+            return
+
+        jmpback = src + len(replaced)
+        
+        for line in self.pdis(self.arch.dis(replaced, addr=src)).split('\n'):
+            self.debug('* %s' % line)
+
+        inline_addr = self.inject(asm=';'.join((
+            self.arch.cs2asm(self.arch.dis(replaced, addr=src)),
+            self.arch.jmp(jmpback),
+        )), internal=True)
+        self.debug(pfcol('HOOK_INLINE') + '@inline address -> 0x%x' % (inline_addr))
+
+        hook_addr = self.inject(asm=';'.join((
+            self.arch.call(dst),
+            self.arch.jmp(inline_addr),
+        )), internal=True)
+        self.debug(pfcol('HOOK_INLINE') + '@hook address -> 0x%x' % (hook_addr))
+
+        opCode = self.asm(';'.join((
+            self.arch.jmp(hook_addr),
+        )), addr=src)
+        self.patch(src, raw=opCode, is_asm=True, internal=True, desc='inline hook')
+
+
 
     def _lint(self, addr, raw, typ, is_asm=False):
         if typ == 'asm' or is_asm:
@@ -277,7 +346,10 @@ class Context(object):
             raw = self.asm(asm, addr=addr)
             typ = 'asm'
         elif c is not None:
-            raise NotImplementedError
+            #raise NotImplementedError
+            asm = compiler.compile(c, self.binary.linker)
+            raw = self.asm(asm, addr=addr, att_syntax=True)
+            self.debug('_compile -> %s' % binascii.hexlify(raw))
             typ = 'c'
         elif hex is not None:
             raw = binascii.unhexlify(hex)
@@ -299,6 +371,7 @@ class Context(object):
             desc = ' | "%s"' % desc
 
         addr = self.binary.next_alloc(target)
+
         c = kwargs.get('c')
         if c:
             asm = compiler.compile(c, self.binary.linker)
@@ -320,10 +393,11 @@ class Context(object):
                 self.debug(dis=self.arch.dis(raw, addr=addr))
             else:
                 self.debug(binascii.hexlify(raw))
-
+        
         addr = self.binary.alloc(len(raw), target=target)
         if mark_func:
             self.marked_funcs.append(Func(self, addr, len(raw)))
+
         self.elf.write(addr, raw)
         if return_size:
             return addr, len(raw)
@@ -335,18 +409,37 @@ class Context(object):
         desc = kwargs.get('desc', '')
         if desc:
             desc = ' | "%s"' % desc
+        else:
+            desc = ' | patch'
 
         self.info(pfcol('PATCH') + '@0x%x-0x%x%s' % (addr, addr + len(raw), desc))
         if len(raw) == 0:
             self.warn('Empty patch.')
             return
 
-        if typ == 'asm' or kwargs.get('is_asm'):
-            size = len(''.join([str(i.bytes) for i in self.dis(addr, len(raw))]))
-            if size != len(raw) and not kwargs.get('internal'):
-                self.warn('Assembly patch is not aligned with underlying instructions.')
+        if typ == 'asm' or kwargs.get('is_asm'): 
+            # self.dis return list 
+            # capstone disasm dependance on binary length, so try 8 times to 
+            # get instructions.
+            for i in range(9):
+                patched = ''.join([str(i.bytes) for i in self.dis(addr, len(raw) + i)])
+                
+                if len(patched) > 0:
+                    self.debug('* Found instructions : %s' % binascii.hexlify(patched))
+                    break
+            
+            padding = len(patched) - len(raw)
+            # Ensure enough space for patch
+            if padding < 0 and not kwargs.get('internal'):
+                self.error('Assembly patch is not aligned with underlying instructions.')
+                return 
 
         self._lint(addr, raw, typ, is_asm=kwargs.get('is_asm'))
+        if kwargs.get('fill', ''):
+            fill = kwargs.get('fill', '')
+        else:
+            fill = '\x90'
+        raw += fill * padding
         if not kwargs.get('silent'):
             if typ == 'asm' or kwargs.get('is_asm'):
                 # collapse nulls
@@ -363,6 +456,57 @@ class Context(object):
                 self.debug('+ %s' % binascii.hexlify(raw))
         self.elf.write(addr, raw)
 
+    def patchblock(self, start, end, **kwargs):
+        if start > end:
+            self.error('Start address is not bigger than end address.')
+            return
+        # patch code compile here
+        raw, typ = self._compile(start, **kwargs)
+        
+        desc = kwargs.get('desc', '')
+        if desc:
+            desc = ' | "%s"' % desc
+        else:
+            desc = ' | patchblock'
+
+        self.debug(pfcol('PATCHBLOCK') + '%s' % binascii.hexlify(self.elf.read(start, end-start)))
+        self.info(pfcol('PATCHBLOCK') + '@0x%x-0x%x%s' % (start, end, desc))
+        if end-start == 0:
+            self.warn('Empty patch.')
+            return
+
+        if typ == 'asm' or kwargs.get('is_asm'):
+            patched = ''.join([str(i.bytes) for i in self.dis(start, end-start)])
+            padding = len(patched) - len(raw)
+            if padding < 0 and not kwargs.get('internal'):
+                # Ensure enough space for patch
+                self.error('Assembly patch is not aligned with underlying instructions.')
+                return
+
+        self._lint(start, raw, typ, is_asm=kwargs.get('is_asm'))
+
+        if kwargs.get('fill', ''):
+            fill = kwargs.get('fill', '')
+        else:
+            fill = '\x90'
+
+        raw += fill * padding
+        if not kwargs.get('silent'):
+            if typ == 'asm' or kwargs.get('is_asm'):
+                # collapse nulls
+                old = self.elf.read(start, (end-start))
+                if old == '\0' * (end-start):
+                    self.debug('- %s' % ('00' * (end-start)))
+                else:
+                    for line in self.pdis(self.dis(start, (end-start))).split('\n'):
+                        self.debug('- %s' % line)
+                for line in self.pdis(self.arch.dis(raw, addr=start)).split('\n'):
+                    self.debug('+ %s' % line)
+            else:
+                self.debug('- %s' % binascii.hexlify(self.elf.read(start, (end-start))))
+                self.debug('+ %s' % binascii.hexlify(raw))
+        self.elf.write(start, raw)
+    
     def resolve(self, sym):
         return self.binary.linker.resolve(sym)
 

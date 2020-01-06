@@ -19,7 +19,7 @@ class Binary:
         self.asm_hook = []
         self.c_hook = []
 
-        self.verbose = False
+        self.verbose = True
         autolink.declare(self.linker)
 
         start = 0xFFFFFFFFFFFFFFFF
@@ -93,6 +93,7 @@ class Binary:
             with self.collect() as pt:
                 # call each hook addr then jump to original entry point
                 calls = map(pt.arch.call, self.entry_hooks) + [pt.arch.jmp(pt.entry)]
+                print '[+] Call list: %s' % calls
                 addr = pt.inject(asm=';'.join(calls), internal=True)
                 pt.entry = addr
 

@@ -24,6 +24,16 @@ class Arch:
     def dis(self, raw, addr=0):
         return list(self.cs.disasm(str(raw), addr))
 
+    def cs2asm(self, dis):
+        if not dis: 
+            return ''
+        if isinstance(dis, CsInsn):
+            dis = [dis]
+        out = []
+        for i in dis:
+            out.append('%s %s' % (i.mnemonic, i.op_str))
+        return ';'.join(out)
+
     def jmp(self, dst):
         raise NotImplementedError
 
@@ -40,8 +50,8 @@ class x86(Arch):
     _cs = CS_ARCH_X86, CS_MODE_32
     _ks = KS_ARCH_X86, KS_MODE_32
 
-    def call(self, dst): return 'call %s;' % dst
-    def jmp(self, dst):  return 'jmp %s;' % dst
+    def call(self, dst): return 'call %s;' % hex(dst)
+    def jmp(self, dst):  return 'jmp %s;' % hex(dst)
 
     def ret(self): return 'ret;'
     def nop(self): return 'nop;'
