@@ -266,22 +266,21 @@ class Context(object):
 
     def hook_inline(self, src, dst, first=False, noentry=False):
         # hooking the entry point is a special, more efficient case
-        # hooking the entry point is a special, more efficient case
         if src == self.entry and not noentry:
             if first:
                 self.binary.entry_hooks.insert(0, dst)
             else:
                 self.binary.entry_hooks.append(dst)
-            self.debug(pfcol('HOOK_INLINE') + 'ENTRY -> 0x%x' % dst)
+            self.debug(pfcol('HOOK_INLINE') + 'Patch ENTRY to 0x%x' % dst)
             return
-        self.debug(pfcol('HOOK_INLINE') + '@0x%x -> 0x%x' % (src, dst))
+        self.debug(pfcol('HOOK_INLINE') + 'Patch 0x%x to 0x%x' % (src, dst))
         self.make_writable(src)
 
         # get address len
         alloc = self.binary.next_alloc()
         # TODO: what if call(0) is smaller than the call to our hook?
-        self.debug(pfcol('HOOK_INLINE') + '%s' % (self.arch.call(alloc)))
-        self.debug(pfcol('HOOK_INLINE') + '%s' % (self.arch.jmp(alloc)))
+        #self.debug(pfcol('HOOK_INLINE') + '%s' % (self.arch.call(alloc)))
+        #self.debug(pfcol('HOOK_INLINE') + '%s' % (self.arch.jmp(alloc)))
 
         call = self.asm(self.arch.call(alloc), addr=alloc)
 
@@ -293,38 +292,39 @@ class Context(object):
 
         for ins in ins:
             replaced += ins.bytes
-            self.debug(pfcol('HOOK_INLINE') + '* search header -> %s' % binascii.hexlify(ins.bytes))
+            self.debug(pfcol('HOOK_INLINE') + '[!] Search how many bytes need by call instructions -> %s' % binascii.hexlify(ins.bytes))
             if len(replaced) >= len(call):
                 break
 
         replaced = replaced.strip(self.asm(self.arch.nop())) # your loss
 
         if len(replaced) == 0 and False:
-            self.debug(pfcol('HOOK_INLINE') + 'replaced %s' % (self.arch.call(dst)))
+            self.debug(pfcol('HOOK_INLINE') + '[!] Patch instructions %s with no callback' % (self.arch.call(dst)))
             self.patch(src, asm=self.arch.call(dst))
             return
 
         jmpback = src + len(replaced)
         
         for line in self.pdis(self.arch.dis(replaced, addr=src)).split('\n'):
-            self.debug('* %s' % line)
+            self.debug(pfcol('HOOK_INLINE') + '%s' % line + pfcol('Will be patched'))
 
         inline_addr = self.inject(asm=';'.join((
             self.arch.cs2asm(self.arch.dis(replaced, addr=src)),
             self.arch.jmp(jmpback),
         )), internal=True)
-        self.debug(pfcol('HOOK_INLINE') + '@inline address -> 0x%x' % (inline_addr))
+        self.debug(pfcol('HOOK_INLINE') + 'Stage 1 : Save origin instructions to 0x%x and jump back to 0x%x' % (inline_addr, jmpback))
 
         hook_addr = self.inject(asm=';'.join((
             self.arch.call(dst),
             self.arch.jmp(inline_addr),
         )), internal=True)
-        self.debug(pfcol('HOOK_INLINE') + '@hook address -> 0x%x' % (hook_addr))
+        self.debug(pfcol('HOOK_INLINE') + 'Stage 2 : Call the hook function at 0x%x and jump to origin instructions at 0x%x' % (dst, inline_addr))
 
         opCode = self.asm(';'.join((
             self.arch.jmp(hook_addr),
         )), addr=src)
         self.patch(src, raw=opCode, is_asm=True, internal=True, desc='inline hook')
+        self.debug(pfcol('HOOK_INLINE') + 'Stage 3 : Patch origin instructions to call hook address 0x%x' % (hook_addr))
 
 
 
